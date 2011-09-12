@@ -33,6 +33,17 @@ class Dummy(web.RequestHandler):
         self.write("This is a dummy handler!")
 
 
+class RunFabricTask(web.RequestHandler):
+    def get(self):
+        async_task_output = StringIO()
+        run_fabric_task(async_task_input)
+
+        for line in async_task_output:
+            self.write(line)
+
+        async_task_output = None
+
+
 class RunFabricTaskInSeparateThread(web.RequestHandler):
     fabric_task_output = None
     fabric_task = None
@@ -42,12 +53,15 @@ class RunFabricTaskInSeparateThread(web.RequestHandler):
     def get(self):
         cls = RunFabricTaskInSeparateThread
 
-        if cls.fabric_task is None or not cls.fabric_task.is_alive():
+        logger.debug('Fabric Task:  ' + str(cls.fabric_task))
+
+        if cls.fabric_task is None:
             cls.fabric_task_output = StringIO()
             cls.fabric_task = Thread(
                 target=run_fabric_task,
                 args=(FabricTest, cls.fabric_task_output)
             )
+            logger.debug('Task is alive?  ' + str(cls.fabric_task.is_alive()))
             cls.fabric_task.start()
             self.write("Started task...<br>")
 
@@ -63,6 +77,7 @@ class RunFabricTaskInSeparateThread(web.RequestHandler):
         if not cls.fabric_task.is_alive():
             cls.periodic_callback.stop()
             output = cls.fabric_task_output.getvalue()
+            cls.fabric_task = None
             self.finish('<br>'.join(output.splitlines()))
         else:
             output = cls.fabric_task_output.readline()
@@ -79,6 +94,7 @@ def run_fabric_task(fabric_task, output_stream):
 
 application = web.Application( [
     (r"/", Dummy),
+    (r"/run_fabric_task", RunFabricTask),
     (r"/run_fabric_task_in_separate_thread", RunFabricTaskInSeparateThread)
 ] )
 

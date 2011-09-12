@@ -3,6 +3,7 @@
 import sys
 from cStringIO import StringIO
 from threading import Thread
+from multiprocessing import Process
 import logging
 
 from fabric.tasks import Task
@@ -36,21 +37,20 @@ class Dummy(web.RequestHandler):
 class RunFabricTaskInSeparateThread(web.RequestHandler):
     fabric_task_output = None
     fabric_task = None
+    fabric_task_running = False
     periodic_callback = None
 
     @web.asynchronous
     def get(self):
         cls = RunFabricTaskInSeparateThread
 
-        logger.debug('Fabric Task:  ' + str(cls.fabric_task))
-
-        if cls.fabric_task is None:
+        if not cls.fabric_task_running:
+            cls.fabric_task_running = True
             cls.fabric_task_output = StringIO()
             cls.fabric_task = Thread(
                 target=run_fabric_task,
                 args=(FabricTest, cls.fabric_task_output)
             )
-            logger.debug('Task is alive?  ' + str(cls.fabric_task.is_alive()))
             cls.fabric_task.start()
             self.write("Started task...<br>")
 
@@ -64,9 +64,10 @@ class RunFabricTaskInSeparateThread(web.RequestHandler):
         cls = RunFabricTaskInSeparateThread
 
         if not cls.fabric_task.is_alive():
+            cls.fabric_task_running = False
+            cls.fabric_task = None
             cls.periodic_callback.stop()
             output = cls.fabric_task_output.getvalue()
-            cls.fabric_task = None
             self.finish('<br>'.join(output.splitlines()))
         else:
             output = cls.fabric_task_output.readline()

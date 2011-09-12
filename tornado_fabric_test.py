@@ -3,22 +3,29 @@
 import sys
 from cStringIO import StringIO
 from threading import Thread
-from multiprocessing import Process
+import logging
 
 from fabric.tasks import Task
-from fabric.api import run, local, settings
+from fabric.api import cd, run, local, settings
 from tornado import ioloop, web
 
 
-async_task_output = None
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.DEBUG,
+    format='%(asctime)s %(name)-12s %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 class FabricTest(Task):
     def run(self):
-        local("echo \"This is done locally.\"")
-        run("echo \"This is done remotely.\"")
-        run("ls -lht /tmp | head && sleep 10")
-        run("echo \"Slept for 10 seconds... was Tornado responsive?\"")
+        with cd('/tmp'):
+            local("echo \"This is done locally.\"")
+            run("echo \"This is done remotely.\"")
+            run("ls -lht | head && sleep 10")
+            run("echo \"Slept for 10 seconds... was Tornado responsive?\"")
+            run("touch tornado.txt")
 
 
 class Dummy(web.RequestHandler):
@@ -26,30 +33,64 @@ class Dummy(web.RequestHandler):
         self.write("This is a dummy handler!")
 
 
-class RunFabricTaskInSeparateThread(web.RequestHandler):
-    @web.asynchronous
+class RunFabricTask(web.RequestHandler):
     def get(self):
         async_task_output = StringIO()
-        self.t = Thread(target=run_fabric_task, args=(async_task_output, ))
-        self.t.start()
-        self.write("Started thread...")
-        self.t.join()
-        self.write(async_task_output.getvalue())
+        run_fabric_task(async_task_input)
+
+        for line in async_task_output:
+            self.write(line)
+
         async_task_output = None
 
 
-def run_fabric_task(output_stream):
+class RunFabricTaskInSeparateThread(web.RequestHandler):
+    fabric_task_output = None
+    fabric_task = None
+    periodic_callback = None
+
+    @web.asynchronous
+    def get(self):
+        cls = RunFabricTaskInSeparateThread
+
+        if cls.fabric_task is None or not cls.fabric_task.is_alive():
+            cls.fabric_task_output = StringIO()
+            cls.fabric_task = Thread(
+                target=run_fabric_task,
+                args=(FabricTest, cls.fabric_task_output)
+            )
+            cls.fabric_task.start()
+            self.write("Started task...<br>")
+
+            cls.periodic_callback = ioloop.PeriodicCallback(self._on_output, 100)
+            cls.periodic_callback.start()
+        else:
+            self.write("Task currently running...<br>")
+
+
+    def _on_output(self):
+        cls = RunFabricTaskInSeparateThread
+
+        if not cls.fabric_task.is_alive():
+            cls.periodic_callback.stop()
+            output = cls.fabric_task_output.getvalue()
+            self.finish('<br>'.join(output.splitlines()))
+        else:
+            output = cls.fabric_task_output.readline()
+            self.write(output.replace("\n", '<br>'))
+            self.flush()
+
+
+def run_fabric_task(fabric_task, output_stream):
     sys.stdout = output_stream
-    with settings(
-            host_string='10.1.1.194',
-            user='deploy',
-            password='GwyDeGZqsX'):
-        FabricTest().run()
+    with settings(host_string='10.1.1.194', user='deploy', password='GwyDeGZqsX'):
+        fabric_task().run()
     sys.stdout = sys.__stdout__
 
 
 application = web.Application( [
     (r"/", Dummy),
+    (r"/run_fabric_task", RunFabricTask),
     (r"/run_fabric_task_in_separate_thread", RunFabricTaskInSeparateThread)
 ] )
 

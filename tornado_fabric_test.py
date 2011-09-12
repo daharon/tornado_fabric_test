@@ -21,6 +21,11 @@ class FabricTest(Task):
         run("echo \"Slept for 10 seconds... was Tornado responsive?\"")
 
 
+class Dummy(web.RequestHandler):
+    def get(self):
+        self.write("This is a dummy handler!")
+
+
 class RunFabricTaskInSeparateThread(web.RequestHandler):
     @web.asynchronous
     def get(self):

@@ -24,9 +24,30 @@ class FabricTest(Task):
         with cd('/tmp'):
             local("echo \"This is done locally.\"")
             run("echo \"This is done remotely.\"")
-            run("ls -lht | head && sleep 10")
-            run("echo \"Slept for 10 seconds... was Tornado responsive?\"")
+            run("ls -lht | head && sleep 5")
+            run("echo \"Slept for 5 seconds... was Tornado responsive?\"")
             run("touch tornado.txt")
+
+
+class FabricOutput(object):
+    """ Copy the behaviour of a File Object. """
+    def __init__(self):
+        self._contents = []
+
+    def write(self, obj):
+        self._contents.append(obj)
+
+    def getvalue(self):
+        return ''.join(self._contents)
+
+    def read(self, start=0):
+        return ( len(self._contents), ''.join(self._contents[start:]) )
+
+    def flush(self):
+        pass
+
+    def isatty(self):
+        return False
 
 
 class Dummy(web.RequestHandler):
@@ -40,21 +61,23 @@ class IsTaskRunning(web.RequestHandler):
         self.write("Task Running:  %s<br>" % str(cls.fabric_task_running))
 
 
+class RunFabricTask(web.RequestHandler):
+    def get(self):
+        if RunFabricTaskInSeparateThread.fabric_task_running:
+            self.write('Fabric task is currently running.<br>')
+        else:
+            self.redirect('/run_fabric_task_in_separate_thread')
+
+
 class RunFabricTaskInSeparateThread(web.RequestHandler):
     fabric_task_running = False
-    _fabric_task_output = None
+    fabric_task_output = None
     _fabric_task = None
     _periodic_callback = None
 
 
-    def prepare(self):
-        output = "Task currently running:  %s<br>" % str(RunFabricTaskInSeparateThread.fabric_task_running)
-
-        if RunFabricTaskInSeparateThread.fabric_task_running:
-            self.finish(output)
-        else:
-            self.write(output)
-            self.flush()
+    def initialize(self):
+        self._cursor = 0
 
 
     @web.asynchronous
@@ -62,15 +85,16 @@ class RunFabricTaskInSeparateThread(web.RequestHandler):
         cls = RunFabricTaskInSeparateThread
 
         cls.fabric_task_running = True
-        cls._fabric_task_output = StringIO()
+        cls.fabric_task_output = FabricOutput()
         cls._fabric_task = Thread(
             target=run_fabric_task,
-            args=(FabricTest, cls._fabric_task_output, self._task_done)
+            args=(FabricTest, cls.fabric_task_output, self._task_done)
         )
         cls._fabric_task.start()
         self.write("Started task...<br>")
         self.flush()
 
+        # Stream the Fabric Task's output.
         cls._periodic_callback = ioloop.PeriodicCallback(self._on_output, 100)
         cls._periodic_callback.start()
 
@@ -78,10 +102,12 @@ class RunFabricTaskInSeparateThread(web.RequestHandler):
     def _on_output(self):
         cls = RunFabricTaskInSeparateThread
 
-        if cls._fabric_task is not None and cls._fabric_task.is_alive():
-            output = cls._fabric_task_output.read()
+        if cls.fabric_task_running:
+            self._cursor, output = cls.fabric_task_output.read(self._cursor)
             self.write(output.replace("\n", '<br>'))
             self.flush()
+        else:
+            self.finish()
 
 
     def _task_done(self):
@@ -90,13 +116,12 @@ class RunFabricTaskInSeparateThread(web.RequestHandler):
         cls.fabric_task_running = False
         cls._fabric_task = None
         cls._periodic_callback.stop()
-        output = cls._fabric_task_output.getvalue()
-        self.finish('<br>'.join(output.splitlines()))
+        self.finish()
 
 
 def run_fabric_task(fabric_task, output_stream, done_callback):
     sys.stdout = output_stream
-    with settings(host_string='10.1.1.194', user='deploy', password='GwyDeGZqsX'):
+    with settings(host_string='10.1.1.194', user='deploy', password='password'):
         fabric_task().run()
     sys.stdout = sys.__stdout__
     ioloop.IOLoop.instance().add_callback(done_callback)
@@ -105,6 +130,7 @@ def run_fabric_task(fabric_task, output_stream, done_callback):
 application = web.Application( [
     (r"/", Dummy),
     (r"/task_running", IsTaskRunning),
+    (r"/run_fabric_task", RunFabricTask),
     (r"/run_fabric_task_in_separate_thread", RunFabricTaskInSeparateThread)
 ] )
 

@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 
 import sys
-from cStringIO import StringIO
-from threading import Thread
 import logging
+from threading import Thread
 
 import fabric.tasks
 from fabric.api import cd, run, local, settings

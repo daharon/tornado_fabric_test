@@ -10,6 +10,10 @@ from fabric.api import cd, run, local, settings
 from tornado import ioloop, web
 
 
+host = '10.1.1.194'
+user = 'deploy'
+password = 'password'
+
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.DEBUG,
@@ -149,7 +153,7 @@ def _task_done():
 
 def _run_fabric_task(fabric_task, output_stream, done_callback):
     sys.stdout = output_stream
-    with settings(host_string='10.1.1.194', user='deploy', password='GwyDeGZqsX'):
+    with settings(host_string=host, user=user, password=password):
         fabric_task().run()
     sys.stdout = sys.__stdout__
     ioloop.IOLoop.instance().add_callback(done_callback)

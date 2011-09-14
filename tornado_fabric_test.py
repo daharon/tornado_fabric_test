@@ -86,15 +86,15 @@ class FabricOutput(object):
     def isatty(self):
         return False
 
-    def set_max_size(self, bytes=1048576):
+    def set_max_size(self, bytes_=1048576):
         remove_x_lines = 0
         cache_size = 0
         for entry in self._contents:
             cache_size += len(entry)
 
-        if cache_size > bytes:
+        if cache_size > bytes_:
             avg_entry_len = cache_size / len(self._contents)
-            remove_x_lines = int((cache_size - bytes) / avg_entry_len)
+            remove_x_lines = int((cache_size - bytes_) / avg_entry_len)
             self._contents = self._contents[remove_x_lines:]
 
         return remove_x_lines
